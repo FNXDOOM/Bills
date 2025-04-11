@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bill Processing System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        .container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input, textarea { /* Removed select */
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            box-sizing: border-box; /* Added for better width control */
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border: 1px solid #eee; /* Added border */
+            border-radius: 3px;
+        }
+        .result pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #fff; /* White background for pre */
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd; /* Added border bottom */
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent; /* Transparent border initially */
+            border-bottom: none; /* No bottom border initially */
+            margin-bottom: -1px; /* Overlap border */
+        }
+        .tab.active {
+            background: #fff;
+            border-color: #ddd; /* Set border color */
+            border-bottom: 1px solid #fff; /* White bottom border to merge */
+        }
+        .tab:not(.active):hover {
+             background: #eee;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-top: none; /* No top border as it's handled by tabs */
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+
+    </style>
+</head>
+<body>
+    <h1>Bill Processing System</h1>
+
+    <div class="tabs">
+        <!-- Only Upload Tab is active now -->
+        <div class="tab active" data-tab="upload">Upload & Process Bill</div>
+        <!-- Removed Status and Template tabs -->
+    </div>
+
+    <!-- Upload Tab Content -->
+    <div id="upload" class="tab-content active">
+        <div class="container">
+            <h2>Upload a Bill for Processing</h2>
+            <p>The system will attempt to extract data using AI immediately after upload.</p>
+            <form id="uploadForm">
+                <div class="form-group">
+                    <label for="billFile">Select Bill File (PDF, JPG, PNG, WEBP):</label>
+                    <!-- Updated accept attribute based on backend allowed types -->
+                    <input type="file" id="billFile" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
+                </div>
+
+                <!-- Removed Template Select -->
+
+                <div class="form-group">
+                    <label for="notes">Notes (Optional):</label>
+                    <textarea id="notes" name="notes" rows="3"></textarea>
+                </div>
+
+                <button type="submit">Upload and Process Bill</button>
+                <span id="uploadSpinner" class="spinner" style="display: none;"></span>
+            </form>
+
+            <div id="uploadResult" class="result" style="display: none;">
+                <h3>Processing Result</h3>
+                <div id="uploadResultContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Removed Status and Templates Tab Content -->
+
+
+    <script>
+        // Base API URL - update this to match your FastAPI server
+        const API_URL = 'http://localhost:8000'; // Default for FastAPI/Uvicorn
+
+        // Utility functions
+        function formatJson(json) {
+            // Check if input is already an object/array, otherwise return as is
+            if (typeof json === 'object' && json !== null) {
+                 return JSON.stringify(json, null, 2);
+            }
+            return json; // Return non-objects directly
+        }
+
+        function showSpinner(id) {
+            document.getElementById(id).style.display = 'inline-block';
+        }
+
+        function hideSpinner(id) {
+            document.getElementById(id).style.display = 'none';
+        }
+
+        // Simplified Tab navigation (only one tab now, but keeping structure)
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Hide all tabs and content
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                // Show selected tab and content
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+
+        // Upload bill form event listener
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault(); // Prevent default form submission
+
+            const resultElem = document.getElementById('uploadResult');
+            const resultContent = document.getElementById('uploadResultContent');
+            const formData = new FormData();
+            const fileInput = document.getElementById('billFile');
+            const notes = document.getElementById('notes').value;
+
+            // Clear previous results
+            resultContent.innerHTML = '';
+            resultElem.style.display = 'none';
+
+            if (!fileInput.files.length) {
+                alert('Please select a file to upload');
+                return;
+            }
+
+            formData.append('file', fileInput.files[0]);
+
+            // Append notes only if provided
+            if (notes) {
+                formData.append('notes', notes);
+            }
+
+            try {
+                showSpinner('uploadSpinner');
+
+                const response = await fetch(`${API_URL}/upload-bill/`, {
+                    method: 'POST',
+                    body: formData
+                    // No 'Content-Type' header needed; browser sets it for FormData
+                });
+
+                const result = await response.json(); // Assume server always returns JSON
+
+                // --- Display formatted result ---
+                let htmlContent = `
+                    <p><strong>Upload Status:</strong> <span class="${result.upload_status === 'success' ? 'success' : 'error'}">${result.upload_status}</span></p>
+                    <p><strong>Message:</strong> ${result.message || 'N/A'}</p>
+                    <p><strong>File ID:</strong> ${result.file_id || 'N/A'}</p>
+                    <p><strong>Saved Filename:</strong> ${result.filename || 'N/A'}</p>
+                    <p><strong>Original Filename:</strong> ${result.original_filename || 'N/A'}</p>
+                    <p><strong>Content Type:</strong> ${result.content_type || 'N/A'}</p>
+                    <p><strong>Notes Submitted:</strong> ${result.notes || '(None)'}</p>
+                    <hr>
+                    <p><strong>AI Processing Status:</strong> <span class="${result.processing_status === 'success' ? 'success' : (result.processing_status === 'error' ? 'error' : '')}">${result.processing_status || 'N/A'}</span></p>
+                `;
+
+                if (result.processing_message) {
+                     htmlContent += `<p><strong>AI Message:</strong> ${result.processing_message}</p>`;
+                }
+
+                if (result.extracted_data) {
+                     htmlContent += `
+                        <h4>Extracted Data:</h4>
+                        <pre>${formatJson(result.extracted_data)}</pre>
+                     `;
+                } else if (result.processing_status !== 'success') {
+                    htmlContent += `<p>No data extracted due to processing error.</p>`;
+                } else {
+                    htmlContent += `<p>No data could be extracted by the AI.</p>`;
+                }
+
+                resultContent.innerHTML = htmlContent;
+                resultElem.style.display = 'block';
+
+                // Optionally clear form after successful upload AND processing attempt
+                // document.getElementById('uploadForm').reset();
+
+            } catch (error) {
+                console.error('Error during upload or processing request:', error);
+                resultContent.innerHTML = `<p class="error">An error occurred while communicating with the server: ${error.message}</p>`;
+                resultElem.style.display = 'block';
+            } finally {
+                hideSpinner('uploadSpinner');
+            }
+        });
+
+        // Removed all JavaScript related to Status Check and Template Management
+
+    </script>
+</body>
+</html>
